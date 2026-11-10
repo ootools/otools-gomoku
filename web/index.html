@@ -3,33 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <title>My OTools Plugin</title>
+  <title>五子棋 · OTools 插件</title>
   <link rel="icon" type="image/svg+xml" href="../logo.svg">
-  <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1b1d22; color: #e6e6e6;
-      font: 14px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-    .wrap { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; box-sizing: border-box; }
-    h1 { margin: 0; font-size: 20px; font-weight: 600; }
-    p.tip { margin: 0; color: #9aa0a6; max-width: 520px; text-align: center; }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-    button { background: #3b3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
-    button:hover { background: #454a53; }
-    pre { background: #14161a; border: 1px solid #2a2d33; border-radius: 8px; padding: 12px 16px; max-width: 560px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }
-    .state { color: #7ee787; }
-    .state.bad { color: #ff7b72; }
-  </style>
+  <link rel="stylesheet" href="./style.css">
   <script>
     /*
-     * OTools 宿主桥（插件唯一需要写的 JS）。
+     * OTools 宿主桥（插件唯一需要写进 HTML 的 JS）。
      * ------------------------------------------------------------------
      * 宿主注入了两条能力通道，任一条通就算「在 OTools 里」：
      *   1. `window.otools` / `window.utools`：宿主包装 API（dialog.open/save + readHostFile/writeHostFile）。
      *   2. `window.__TAURI_INTERNALS__.invoke`：Tauri 原生 IPC（tools_webview_* 命令）。
      * 两条都不通（把 dist 拖进普通浏览器）就退回浏览器原生行为。
      *
-     * 这是「用户开发新插件」的最小可用示例：弹宿主文件对话框、读文件、写文件。
-     * 移植 Rust+WASM 软件时，这段桥通常写在 shell/index.html，Rust 侧通过 wasm-bindgen
-     * 调这里（见 shell/src/otools.rs）。
+     * 五子棋本身不依赖宿主文件能力（对局存档走 localStorage），桥保持完整保留：
+     * 以后要加「导出棋谱 / 导入对局」直接用 window.otoolsPlugin.openText/saveText 即可。
+     * 页面脚本通过 `window.otoolsPlugin.available()` 判断是否运行在 OTools 宿主中。
      */
     (function () {
       function base64ToBytes(b64) {
@@ -147,43 +135,59 @@
           });
         },
       };
-
-      // ---- 下面只是示例 UI，演示怎么用上面的桥；删掉换成你自己的应用即可 ----
-      function setState(msg, bad) {
-        var el = document.getElementById('state');
-        el.textContent = msg;
-        el.className = 'state' + (bad ? ' bad' : '');
-      }
-      window.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('open').addEventListener('click', function () {
-          window.otoolsPlugin.openText().then(function (r) {
-            if (!r) { setState('已取消'); return; }
-            document.getElementById('out').textContent = r.text;
-            setState('已打开：' + r.path);
-          }).catch(function (e) { setState('打开失败：' + e.message, true); });
-        });
-        document.getElementById('save').addEventListener('click', function () {
-          var text = document.getElementById('out').textContent || '';
-          window.otoolsPlugin.saveText('hello.txt', text).then(function (p) {
-            if (!p) { setState('已取消'); return; }
-            setState('已保存：' + p);
-          }).catch(function (e) { setState('保存失败：' + e.message, true); });
-        });
-        setState(window.otoolsPlugin.available() ? '运行在 OTools 宿主中' : '未检测到宿主（退回浏览器行为）');
-      });
     })();
   </script>
 </head>
 <body>
-  <div class="wrap">
-    <h1>My OTools Plugin</h1>
-    <p class="tip">这是 OTools 插件模板的最小示例：用宿主的文件对话框读写真实磁盘文件，无需任何前端打包步骤。把这段逻辑换成你的应用即可。</p>
-    <div class="row">
-      <button id="open">打开文件</button>
-      <button id="save">保存为…</button>
-    </div>
-    <pre id="out">在这里显示打开的文件内容…</pre>
-    <div id="state" class="state"></div>
-  </div>
+  <main class="app">
+    <section class="board-area" id="boardArea">
+      <canvas id="board" aria-label="五子棋棋盘"></canvas>
+    </section>
+    <aside class="panel">
+      <header class="head">
+        <h1>五子棋</h1>
+        <span id="hostBadge" class="host hidden">OTools 宿主</span>
+      </header>
+      <div class="status-line">
+        <span id="status">黑方行棋</span>
+        <span id="spinner" class="spinner hidden" aria-label="思考中"></span>
+      </div>
+      <section class="card">
+        <h2>模式</h2>
+        <div class="seg" id="modeSeg">
+          <button type="button" data-v="pvp">双人对弈</button>
+          <button type="button" data-v="ai">人机对战</button>
+        </div>
+        <div id="aiOpts">
+          <h2>难度</h2>
+          <div class="seg" id="diffSeg">
+            <button type="button" data-v="easy">易</button>
+            <button type="button" data-v="medium">中</button>
+            <button type="button" data-v="hard">难</button>
+          </div>
+          <h2>执子</h2>
+          <div class="seg" id="colorSeg">
+            <button type="button" data-v="black">执黑（先手）</button>
+            <button type="button" data-v="white">执白（后行）</button>
+          </div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>比分</h2>
+        <div class="score">
+          <span class="dot black"></span><b id="scoreBlack">0</b>
+          <span class="vs">:</span>
+          <b id="scoreWhite">0</b><span class="dot white"></span>
+        </div>
+        <div class="sub" id="moveCount">尚未开局</div>
+      </section>
+      <section class="card actions">
+        <button type="button" id="newBtn" class="primary">新开一局</button>
+        <button type="button" id="undoBtn">悔棋</button>
+      </section>
+      <p class="hint">点击棋盘落子 · 先连成五子者胜（长连也算胜，无禁手）</p>
+    </aside>
+  </main>
+  <script type="module" src="./js/ui/main.js"></script>
 </body>
 </html>

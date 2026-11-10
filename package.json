@@ -1,0 +1,11 @@
+{
+  "name": "otools-gomoku",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OTools 五子棋插件：纯静态实现（原生 HTML/CSS/JS ES modules），含 alpha-beta 迭代加深 AI。",
+  "scripts": {
+    "test": "node --test tests/",
+    "build": "node scripts/build-web.mjs"
+  }
+}
